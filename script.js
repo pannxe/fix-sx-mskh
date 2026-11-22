@@ -13,7 +13,7 @@ Reveal.initialize({
   controlsLayout: 'bottom-right',
   progress: true,
   center: true,
-  touch: true,
+  touch: false, // ปิดระบบปัด 4 ทิศทางของ Reveal.js เพื่อกันปัดซ้าย-ขวาเปลี่ยนหน้า
   mouseWheel: true,
   viewDistance: 10
 });
@@ -25,23 +25,6 @@ document.querySelectorAll('.card-carousel').forEach(carousel => {
   let isDown = false;
   let startX = 0;
   let scrollLeft = 0;
-  let touchStartX = 0;
-  let touchStartY = 0;
-
-  // Touch Events (Mobile)
-  carousel.addEventListener('touchstart', (e) => {
-    touchStartX = e.touches[0].clientX;
-    touchStartY = e.touches[0].clientY;
-    e.stopImmediatePropagation();
-  }, { passive: true });
-
-  carousel.addEventListener('touchmove', (e) => {
-    const diffX = Math.abs(e.touches[0].clientX - touchStartX);
-    const diffY = Math.abs(e.touches[0].clientY - touchStartY);
-    if (diffX > diffY) {
-      e.stopImmediatePropagation();
-    }
-  }, { passive: true });
 
   // Mouse Drag Events (Desktop)
   carousel.addEventListener('mousedown', (e) => {
@@ -71,13 +54,15 @@ document.querySelectorAll('.card-carousel').forEach(carousel => {
     carousel.scrollLeft = scrollLeft - (x - startX) * 1.5;
   });
 
-  // Wheel & Mac Touchpad Events
+  // Mac Trackpad & Mouse Wheel Events
   carousel.addEventListener('wheel', (e) => {
+    // 1. กรณีใช้ Mac Trackpad ปัด 2 นิ้ว ซ้าย-ขวา -> ปล่อยให้เบราว์เซอร์เลื่อนเองตามธรรมชาติ (ลื่นสุด) แค่กันไม่ให้ Reveal.js เปลี่ยนหน้า
     if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
       e.stopImmediatePropagation();
       return;
     }
 
+    // 2. กรณีใช้ลูกกลิ้งเมาส์ธรรมดาหมุนขึ้น-ลง -> แปลงเป็นเลื่อนซ้าย-ขวา
     const atLeftEdge = carousel.scrollLeft <= 0 && e.deltaY < 0;
     const atRightEdge = carousel.scrollLeft + carousel.clientWidth >= carousel.scrollWidth - 2 && e.deltaY > 0;
 
@@ -105,79 +90,49 @@ document.querySelectorAll('.slideshow-wrapper').forEach(wrapper => {
 });
 
 /* =========================================
-   4. AUTO-PLAY FRAGMENTS PER SLIDE
+   4. CUSTOM AUTO-REVEAL PER SLIDE
    ========================================= */
-let fragmentTimers = [];
+let revealTimers = [];
 
-function autoPlayFragments(slide) {
-  fragmentTimers.forEach(clearTimeout);
-  fragmentTimers = [];
+function runAutoReveal(slide) {
+  revealTimers.forEach(clearTimeout);
+  revealTimers = [];
 
-  slide.querySelectorAll('.fragment').forEach(el => {
-    el.classList.remove('visible', 'current-fragment');
-  });
+  const items = slide.querySelectorAll('.auto-reveal');
+  items.forEach(el => el.classList.remove('is-shown'));
 
-  const fragments = slide.querySelectorAll('.fragment');
-  fragments.forEach((_, index) => {
+  items.forEach((el, index) => {
     const timer = setTimeout(() => {
-      Reveal.nextFragment();
-    }, 600 + (index * 500));
-    fragmentTimers.push(timer);
+      el.classList.add('is-shown');
+    }, 450 + (index * 400));
+    revealTimers.push(timer);
   });
 }
-
-Reveal.on('ready', event => autoPlayFragments(event.currentSlide));
-Reveal.on('slidechanged', event => autoPlayFragments(event.currentSlide));
 
 /* =========================================
-   5. DIRECT PREVIOUS SLIDE NAVIGATION GUARD
+   5. VERTICAL-ONLY TOUCH SWIPE (ปัดได้เฉพาะขึ้น-ลง)
    ========================================= */
-function goPrevSlideImmediately() {
-  const current = Reveal.getIndices();
-  if (current.v > 0) {
-    Reveal.slide(current.h, current.v - 1);
-  }
-}
+let vTouchStartX = 0;
+let vTouchStartY = 0;
 
-// Keyboard Up
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'ArrowUp' || e.key === 'PageUp') {
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    goPrevSlideImmediately();
-  }
-}, true);
-
-// Mobile Swipe Down
-let navTouchStartY = 0;
 document.addEventListener('touchstart', (e) => {
-  navTouchStartY = e.touches[0].clientY;
-}, { capture: true, passive: true });
+  vTouchStartX = e.touches[0].clientX;
+  vTouchStartY = e.touches[0].clientY;
+}, { passive: true });
 
 document.addEventListener('touchend', (e) => {
-  if (e.changedTouches[0].clientY - navTouchStartY > 50) {
-    e.stopImmediatePropagation();
-    goPrevSlideImmediately();
-  }
-}, { capture: true });
+  const diffX = e.changedTouches[0].clientX - vTouchStartX;
+  const diffY = e.changedTouches[0].clientY - vTouchStartY;
 
-// Mouse Wheel / Mac Trackpad Inertial Scroll Guard
-let isWheelLocked = false;
-let wheelTimeout;
-
-document.addEventListener('wheel', (e) => {
-  if (e.deltaY < -10) {
-    e.preventDefault();
-    e.stopImmediatePropagation();
-
-    if (!isWheelLocked) {
-      isWheelLocked = true;
-      goPrevSlideImmediately();
+  // เช็คว่าปัดแนวตั้ง (ขึ้น-ลง) มากกว่าแนวนอน (ซ้าย-ขวา) และระยะปัดเกิน 45px
+  if (Math.abs(diffY) > Math.abs(diffX) && Math.abs(diffY) > 45) {
+    if (diffY < 0) {
+      Reveal.down(); // ปัดนิ้วขึ้น -> ไปสไลด์ถัดไป
+    } else {
+      Reveal.up();   // ปัดนิ้วลง -> กลับสไลด์ก่อนหน้า
     }
-
-    clearTimeout(wheelTimeout);
-    wheelTimeout = setTimeout(() => {
-      isWheelLocked = false;
-    }, 180);
   }
-}, { capture: true, passive: false });
+}, { passive: true });
+
+Reveal.on('ready', event => runAutoReveal(event.currentSlide));
+Reveal.on('slidechanged', event => runAutoReveal(event.currentSlide));
